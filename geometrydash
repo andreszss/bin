@@ -1,7 +1,0 @@
-#!/bin/sh
-
-if [ "$1" = --mangohud ]; then
-	WINEDLLOVERRIDES="xinput1_4=n,b" conty.sh mangohud wine /home/diego/.local/share/wine/geometrydash/GeometryDash.exe
-else
-	WINEDLLOVERRIDES="xinput1_4=n,b" conty.sh wine /home/diego/.local/share/wine/geometrydash/GeometryDash.exe
-fi
