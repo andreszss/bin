@@ -1,0 +1,81 @@
+#!/bin/bash
+
+if [ $EUID -ne 0 ]; then
+  SUDO=doas
+else
+  SUDO=""
+fi
+
+if [ -z "$LFS" ]; then
+  echo "LFS not set"
+  exit 1
+fi
+
+function mountbind
+{
+   if ! mountpoint -q "$LFS/$1"; then
+      $SUDO mount --bind "/$1" "$LFS/$1"
+      echo "$LFS/$1 mounted"
+   else
+      echo "$LFS/$1 already mounted"
+   fi
+}
+
+function mounttype
+{
+   if ! mountpoint -q "$LFS/$1"; then
+      $SUDO mount -t "$2" "$3" "$4" "$5" "$LFS/$1" 2>/dev/null || \
+      $SUDO mount -t "$2" "$3" "$LFS/$1"
+      echo "$LFS/$1 mounted"
+   else
+      echo "$LFS/$1 already mounted"
+   fi
+}
+
+echo "==> mounting filesystems..."
+mountbind dev
+mounttype dev/pts devpts devpts -o gid=5,mode=620
+mounttype proc    proc    proc
+mounttype sys     sysfs   sysfs
+mounttype run     tmpfs   run
+
+if [ -h "$LFS/dev/shm" ]; then
+   install -v -d -m 1777 "$LFS$(realpath /dev/shm)"
+else
+   mounttype dev/shm tmpfs tmpfs -o nosuid,nodev
+fi  
+
+echo "==> entering chroot"
+$SUDO chroot "$LFS" /usr/bin/env -i \
+    HOME=/root \
+    TERM="$TERM" \
+    PS1='(lfs chroot) \u:\w\$ ' \
+    PATH="/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin" \
+    MAKEFLAGS="-j$(nproc)" \
+    TESTSUITEFLAGS="-j$(nproc)" \
+    CFLAGS="-O3 -march=native -pipe" \
+    CXXFLAGS="-O3 -march=native -pipe" \
+    /bin/bash --login
+
+echo "==> umounting filesystems..."
+
+if mountpoint -q "$LFS/dev/shm"; then
+   $SUDO umount "$LFS/dev/shm" && echo "$LFS/dev/shm unmounted"
+fi
+if mountpoint -q "$LFS/run"; then
+   $SUDO umount "$LFS/run" && echo "$LFS/run unmounted"
+fi
+if mountpoint -q "$LFS/sys"; then
+   $SUDO umount "$LFS/sys" && echo "$LFS/sys unmounted"
+fi
+if mountpoint -q "$LFS/proc"; then
+   $SUDO umount "$LFS/proc" && echo "$LFS/proc unmounted"
+fi
+if mountpoint -q "$LFS/dev/pts"; then
+   $SUDO umount "$LFS/dev/pts" && echo "$LFS/dev/pts unmounted"
+fi
+if mountpoint -q "$LFS/dev"; then
+   $SUDO umount "$LFS/dev" && echo "$LFS/dev unmounted"
+fi
+
+echo "==> umounted all fs successfully"
