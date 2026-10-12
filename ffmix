@@ -1,10 +1,4 @@
 #!/bin/sh
-# ffmix - re-encode a video with a preset, optionally mixing in an extra audio track.
-#
-# With -a: the video's own audio is lowered and the extra audio is mixed on top.
-# Without -a: the video is encoded with the preset and no extra audio is added
-#             (its original audio is kept as is).
-
 set -eu
 
 # ---------- config ----------
