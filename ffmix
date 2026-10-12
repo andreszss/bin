@@ -1,31 +1,107 @@
 #!/bin/sh
+# ffmix - re-encode a video with a preset, optionally mixing in an extra audio track.
+#
+# With -a: the video's own audio is lowered and the extra audio is mixed on top.
+# Without -a: the video is encoded with the preset and no extra audio is added
+#             (its original audio is kept as is).
 
-# Comprobar que se pasaron los argumentos mínimos necesarios
-if [ "$#" -lt 2 ]; then
-    echo "Uso: $0 <video_original> <audio_nuevo> [salida.mp4] [youtube|tiktok]"
+set -eu
+
+# ---------- config ----------
+VIDEO_VOL="0.15"   # volume of the video's own audio when mixing
+EXTRA_VOL="3.5"    # volume of the extra audio
+
+# ---------- helpers ----------
+usage() {
+    cat <<EOF
+use: ffmix <video> [-a audio] [-o output.mp4] [-p tt|yt]
+
+  -a  extra audio to mix in (optional)
+  -o  output file (default: output.mp4)
+  -p  preset: tt (crf 18, slow, faststart) or yt (crf 23)  (default: tt)
+  -h  show this help
+EOF
+}
+
+die() {
+    echo "error: $*" >&2
     exit 1
-fi
+}
 
-VIDEO="$1"
-AUDIO_EXTRA="$2"
-SALIDA="${3:-salida_mezclada.mp4}"
-PLATAFORMA="${4:-youtube}" # Por defecto usa youtube si no se especifica
+has_audio() {
+    [ -n "$(ffprobe -v error -select_streams a -show_entries stream=index \
+        -of csv=p=0 "$1")" ]
+}
 
-echo "Procesando video para $PLATAFORMA con ffmpeg..."
+set_preset() {
+    case "$1" in
+        tt)
+            VCODEC="-c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p"
+            ABITRATE="320k"
+            MOVFLAGS="-movflags +faststart"
+            ;;
+        yt)
+            VCODEC="-c:v libx264 -crf 23"
+            ABITRATE="192k"
+            MOVFLAGS=""
+            ;;
+        *) die "unknown preset '$1' (use tt or yt)" ;;
+    esac
+}
 
-if [ "$PLATAFORMA" = "tiktok" ]; then
-    # Comando optimizado para TikTok
-    ffmpeg -i "$VIDEO" -i "$AUDIO_EXTRA" \
-        -filter_complex "[0:a]volume=0.25[a1];[a1][1:a]amix=inputs=2:duration=first[aout]" \
-        -map 0:v -map "[aout]" \
-        -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p \
-        -c:a aac -b:a 320k -movflags +faststart "$SALIDA"
+# ---------- args ----------
+[ "$#" -ge 1 ] || { usage; exit 1; }
+case "$1" in -h|--help) usage; exit 0 ;; esac
+
+VIDEO="$1"; shift
+AUDIO=""
+OUTPUT="output.mp4"
+PRESET="tt"
+
+while getopts "a:o:p:h" opt; do
+    case "$opt" in
+        a) AUDIO="$OPTARG" ;;
+        o) OUTPUT="$OPTARG" ;;
+        p) PRESET="$OPTARG" ;;
+        h) usage; exit 0 ;;
+        *) usage; exit 1 ;;
+    esac
+done
+
+# ---------- checks ----------
+command -v ffmpeg  >/dev/null 2>&1 || die "ffmpeg not found"
+command -v ffprobe >/dev/null 2>&1 || die "ffprobe not found"
+[ -f "$VIDEO" ] || die "video not found: $VIDEO"
+[ -z "$AUDIO" ] || [ -f "$AUDIO" ] || die "audio not found: $AUDIO"
+set_preset "$PRESET"
+
+# ---------- build command ----------
+set -- -hide_banner -i "$VIDEO"
+
+if [ -n "$AUDIO" ]; then
+    set -- "$@" -i "$AUDIO"
+    if has_audio "$VIDEO"; then
+        echo "mode: mixing extra audio with video audio"
+        FILTER="[0:a]volume=$VIDEO_VOL[a1];[1:a]volume=$EXTRA_VOL[a2];[a1][a2]amix=inputs=2:duration=first[aout]"
+        set -- "$@" -filter_complex "$FILTER" -map 0:v -map "[aout]"
+    else
+        echo "mode: video has no audio, using extra audio only"
+        set -- "$@" -filter_complex "[1:a]volume=$EXTRA_VOL[aout]" \
+            -map 0:v -map "[aout]" -shortest
+    fi
+    # shellcheck disable=SC2086
+    set -- "$@" $VCODEC -c:a aac -b:a "$ABITRATE" $MOVFLAGS
+elif has_audio "$VIDEO"; then
+    echo "mode: no extra audio, keeping video audio"
+    # shellcheck disable=SC2086
+    set -- "$@" -map 0:v -map 0:a $VCODEC -c:a aac -b:a "$ABITRATE" $MOVFLAGS
 else
-    # Comando estándar (YouTube u otros)
-    ffmpeg -i "$VIDEO" -i "$AUDIO_EXTRA" \
-        -filter_complex "[0:a]volume=0.25[a1];[a1][1:a]amix=inputs=2:duration=first[aout]" \
-        -map 0:v -map "[aout]" \
-        -c:v libx264 -crf 23 -c:a aac -b:a 192k "$SALIDA"
+    echo "mode: no extra audio, video has no audio"
+    # shellcheck disable=SC2086
+    set -- "$@" -map 0:v $VCODEC -an $MOVFLAGS
 fi
 
-echo "¡Listo! Archivo guardado como: $SALIDA"
+# ---------- run ----------
+echo "processing '$VIDEO' with '$PRESET' preset."
+ffmpeg "$@" "$OUTPUT"
+echo "file saved: $OUTPUT"

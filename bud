@@ -81,6 +81,7 @@ send_sequences() {
 
     paleta < "$CURRENT" > "$CURRENT.tmp" 2>/dev/null || paleta_error; mv "$CURRENT.tmp" "$CURRENT"
 	out "colors: set terminal colors"
+    out "background: $c0"
 }
 
 set_wallpaper() {
@@ -135,7 +136,8 @@ main() {
     
 	out "colors: using wallpaper '"$wal"'"
 
-    colors=$(magick "${wal}" +dither -colors 16 -unique-colors txt:- | grep -E -o " \#.{6}")
+    #colors=$(magick "${wal}" +dither -colors 16 -unique-colors txt:- | grep -E -o " \#.{6}")
+    colors=$(magick "${wal}" +dither -colors 16 -unique-colors txt:- | grep -E -o ' #[0-9a-fA-F]{6}')
 
 	magick_check
 
