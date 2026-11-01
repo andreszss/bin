@@ -151,6 +151,11 @@ send_sequences() {
     out "background: $c0"
 }
 
+# Muestra los colores listos para los parametros de wmenu (sin '#')
+wmenu_colors() {
+    out "wmenu: -N ${c0#?} -n ${c15#?} -M ${c0#?} -m ${c4#?} -S ${c4#?} -s ${c0#?}"
+}
+
 set_wallpaper() {
     if type feh >/dev/null 2>&1; then
         feh --bg-fill "$wal"
@@ -213,6 +218,7 @@ main() {
     out "colors: generated colorscheme"
 
     send_sequences
+    wmenu_colors
     set_wallpaper
 }
 
